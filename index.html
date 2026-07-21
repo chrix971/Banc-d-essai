@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Banc d'essai — Préparation de test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="glyph"><b>B</b></div>
+    <div class="wm">
+      <div class="t">BANC D'ESSAI</div>
+      <div class="s">Protocole de test</div>
+    </div>
+  </div>
+  <div class="ident">
+    <span class="prod" id="identProd"><span class="ph">Nouveau test</span></span>
+    <span class="cat" id="identCat"></span>
+  </div>
+  <div class="prog" title="Complétion du protocole">
+    <div class="bar"><i id="progBar"></i></div>
+    <span class="pct mono" id="progPct">0%</span>
+  </div>
+  <div class="actions">
+    <button class="btn ghost" id="resetBtn" title="Repartir de zéro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span>Réinitialiser</span></button>
+    <button class="btn solid" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Exporter .md</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <aside>
+    <div class="navcard drafts">
+      <h3>Mes tests</h3>
+      <div class="navlist" id="draftList"></div>
+      <button class="newbtn" id="newBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>Nouveau test</button>
+    </div>
+    <div class="navcard pillars">
+      <h3>Protocole</h3>
+      <div class="navlist" id="stepNav"></div>
+    </div>
+  </aside>
+
+  <main id="main"><!-- steps injected --></main>
+</div>
+
+<!-- Export modal -->
+<div class="modal" id="modal">
+  <div class="modalbox">
+    <div class="modalhead">
+      <h3>Notes de test — Markdown</h3>
+      <button class="x" id="modalX"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modalbody">
+      <textarea id="mdOut" spellcheck="false" readonly></textarea>
+    </div>
+    <div class="modalfoot">
+      <span class="hint">À coller dans votre IA de rédaction, ou téléchargé en <b>.md</b>.</span>
+      <button class="btn ghost" id="copyBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copier</button>
+      <button class="btn solid" id="dlBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Télécharger</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg><span id="toastMsg"></span></div>
+
+<script src="app.js"></script>
+</body>
+</html>
