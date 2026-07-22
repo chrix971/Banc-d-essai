@@ -235,12 +235,27 @@ const CATEGORIES = {
    ÉTAT & PERSISTANCE
    ========================================================= */
 const $ = s => document.querySelector(s);
-const store = { // wrapper tolérant : window.storage sinon mémoire
+// Stockage à 3 niveaux : window.storage (aperçu) → localStorage (vrai site) → mémoire (secours)
+function hasLocal(){ try{ const k="__be_t"; localStorage.setItem(k,"1"); localStorage.removeItem(k); return true; }catch(e){ return false; } }
+const store = {
   mem:{},
-  ok: (typeof window!=="undefined" && window.storage && typeof window.storage.get==="function"),
-  async get(k){ if(!this.ok) return this.mem[k]??null; try{const r=await window.storage.get(k);return r?r.value:null;}catch(e){return null;} },
-  async set(k,v){ if(!this.ok){this.mem[k]=v;return;} try{await window.storage.set(k,v);}catch(e){} },
-  async del(k){ if(!this.ok){delete this.mem[k];return;} try{await window.storage.delete(k);}catch(e){} },
+  mode: (typeof window!=="undefined" && window.storage && typeof window.storage.get==="function") ? "cloud"
+      : (hasLocal() ? "local" : "mem"),
+  async get(k){
+    if(this.mode==="cloud"){ try{const r=await window.storage.get(k);return r?r.value:null;}catch(e){return null;} }
+    if(this.mode==="local"){ return localStorage.getItem(k); }
+    return this.mem[k]??null;
+  },
+  async set(k,v){
+    if(this.mode==="cloud"){ try{await window.storage.set(k,v);}catch(e){} return; }
+    if(this.mode==="local"){ try{localStorage.setItem(k,v);}catch(e){ toast("Stockage plein — exportez une sauvegarde"); } return; }
+    this.mem[k]=v;
+  },
+  async del(k){
+    if(this.mode==="cloud"){ try{await window.storage.delete(k);}catch(e){} return; }
+    if(this.mode==="local"){ localStorage.removeItem(k); return; }
+    delete this.mem[k];
+  },
 };
 const IDX_KEY="be:index";
 const ITEM=id=>"be:item:"+id;
@@ -538,6 +553,59 @@ async function delTest(id){
   renderDrafts(idx); toast("Test supprimé");
 }
 
+/* ---- Sauvegarde / restauration de TOUS les tests (fichier .json) ---- */
+async function backupAll(){
+  const idx=await loadIndex();
+  if(!idx.length){ toast("Aucun test à sauvegarder"); return; }
+  const tests=[];
+  for(const e of idx){
+    const raw=await store.get(ITEM(e.id));
+    if(raw){ try{ tests.push(JSON.parse(raw)); }catch(err){} }
+  }
+  const payload={ app:"banc-essai", version:1, exportedAt:new Date().toISOString(), tests };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob); const a=document.createElement("a");
+  const stamp=new Date().toISOString().slice(0,10);
+  a.href=url; a.download=`banc-essai-sauvegarde-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  toast(`Sauvegarde de ${tests.length} test${tests.length>1?'s':''} téléchargée`);
+}
+
+function triggerRestore(){ $("#restoreFile").value=""; $("#restoreFile").click(); }
+
+async function restoreFrom(file){
+  if(!file) return;
+  let data;
+  try{ data=JSON.parse(await file.text()); }
+  catch(e){ toast("Fichier illisible — JSON invalide"); return; }
+  const tests = Array.isArray(data) ? data : (data && Array.isArray(data.tests) ? data.tests : null);
+  if(!tests){ toast("Fichier non reconnu"); return; }
+  const valid=tests.filter(t=>t && t.id);
+  if(!valid.length){ toast("Aucun test valide dans le fichier"); return; }
+
+  let idx=await loadIndex();
+  const known=new Set(idx.map(e=>e.id));
+  const overlap=valid.filter(t=>known.has(t.id)).length;
+  let msg=`Restaurer ${valid.length} test${valid.length>1?'s':''} depuis ce fichier ?`;
+  if(overlap) msg+=`\n${overlap} test${overlap>1?'s':''} déjà présent${overlap>1?'s':''} ser${overlap>1?'ont':'a'} écrasé${overlap>1?'s':''} par la version du fichier.`;
+  if(!confirm(msg)) return;
+
+  for(const t of valid){
+    await store.set(ITEM(t.id), JSON.stringify(t));
+    const title=(t.marque||t.modele)?`${t.marque||""} ${t.modele||""}`.trim():"Test sans titre";
+    const cat=t.category&&CATEGORIES[t.category]?CATEGORIES[t.category].label:"—";
+    const e={id:t.id,title,cat,updated:t.updated||Date.now()};
+    const i=idx.findIndex(x=>x.id===t.id);
+    if(i>=0) idx[i]=e; else idx.push(e);
+  }
+  idx.sort((a,b)=>b.updated-a.updated);
+  await store.set(IDX_KEY, JSON.stringify(idx));
+  const raw=await store.get(ITEM(idx[0].id));
+  if(raw){ try{ state=JSON.parse(raw); activeStep=0; render(); }catch(e){} }
+  renderDrafts(idx);
+  toast(`${valid.length} test${valid.length>1?'s':''} restauré${valid.length>1?'s':''}`);
+}
+
 /* =========================================================
    EXPORT MARKDOWN
    ========================================================= */
@@ -639,6 +707,9 @@ $("#modal").onclick=e=>{ if(e.target===$("#modal")) closeExport(); };
 $("#dlBtn").onclick=download;
 $("#copyBtn").onclick=copyMd;
 $("#newBtn").onclick=()=>{ state=blankState(); activeStep=0; render(); persist(); toast("Nouveau test créé"); };
+$("#backupBtn").onclick=backupAll;
+$("#restoreBtn").onclick=triggerRestore;
+$("#restoreFile").onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) restoreFrom(f); };
 $("#resetBtn").onclick=()=>{
   if(confirm("Réinitialiser ce test ? Les observations non exportées seront perdues.")){
     const id=state.id; state=blankState(); state.id=id; activeStep=0; render(); persist(); toast("Test réinitialisé");
@@ -651,5 +722,5 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeExport(); });
   if(idx.length){ const raw=await store.get(ITEM(idx[0].id)); if(raw){ try{state=JSON.parse(raw);}catch(e){state=blankState();} } else state=blankState(); }
   else state=blankState();
   render(); renderDrafts(idx.length?idx:[]);
-  if(!store.ok) toast("Sauvegarde locale indisponible ici — pensez à exporter");
+  if(store.mode==="mem") toast("Sauvegarde auto indisponible — pensez à exporter une sauvegarde");
 })();
