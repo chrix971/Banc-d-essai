@@ -507,10 +507,20 @@ function touch(debounced){
   else persist();
   if(!debounced){ renderNav(); renderProgress(); }
 }
+function norm(s){ return (s==null?"":String(s)).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+function searchBlob(t){
+  const parts=[t.marque,t.modele,(t.category&&CATEGORIES[t.category]?CATEGORIES[t.category].label:""),
+    t.config,t.testeur,t.prix,t.verdict,t.pourqui];
+  if(Array.isArray(t.likes)) parts.push(t.likes.join(" "));
+  if(Array.isArray(t.dislikes)) parts.push(t.dislikes.join(" "));
+  if(t.fields) parts.push(Object.values(t.fields).join(" "));
+  if(t.note!=null) parts.push("note "+t.note);
+  return norm(parts.join(" "));
+}
 function indexEntry(t){
   const title=(t.marque||t.modele)?`${t.marque||""} ${t.modele||""}`.trim():"Test sans titre";
   const cat=t.category&&CATEGORIES[t.category]?CATEGORIES[t.category].label:"—";
-  return {id:t.id,title,cat,updated:t.updated||Date.now(),status:t.status||"active"};
+  return {id:t.id,title,cat,updated:t.updated||Date.now(),status:t.status||"active",search:searchBlob(t)};
 }
 let cloudTimer=null;
 async function persist(){
@@ -530,8 +540,29 @@ async function persist(){
   }
 }
 async function loadIndex(){ const raw=await store.get(IDX_KEY); try{return raw?JSON.parse(raw):[];}catch(e){return [];} }
+// Reconstruit l'index si des entrées n'ont pas encore de blob de recherche (tests créés avant cette version)
+async function ensureSearchIndex(){
+  let idx=await loadIndex();
+  if(!idx.length || idx.every(e=>typeof e.search==="string")) return idx;
+  const rebuilt=[];
+  for(const e of idx){
+    const raw=await store.get(ITEM(e.id));
+    if(raw){ try{ rebuilt.push(indexEntry(JSON.parse(raw))); continue; }catch(_){} }
+    rebuilt.push(e);
+  }
+  rebuilt.sort((a,b)=>b.updated-a.updated);
+  await store.set(IDX_KEY, JSON.stringify(rebuilt));
+  return rebuilt;
+}
 
 let showArchive=false;
+let query="";
+function matchQuery(e){
+  const terms=norm(query).split(/\s+/).filter(Boolean);
+  if(!terms.length) return true;
+  const blob=e.search||norm((e.title||"")+" "+(e.cat||""));
+  return terms.every(t=>blob.includes(t));
+}
 function draftRow(e,archived){
   const archiveBtn = archived
     ? `<button class="act" data-unarch="${e.id}" title="Réactiver ce test"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 17V11"/><path d="m9 14 3-3 3 3"/></svg></button>`
@@ -545,8 +576,30 @@ function draftRow(e,archived){
       <button class="act del" data-del="${e.id}" title="Supprimer définitivement"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
     </div>`;
 }
+function bindDraftRows(list,idx){
+  list.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openTest(b.dataset.open));
+  list.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delTest(b.dataset.del));
+  list.querySelectorAll("[data-arch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.arch,"archived"));
+  list.querySelectorAll("[data-unarch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unarch,"active"));
+  const tg=list.querySelector("[data-archtoggle]"); if(tg) tg.onclick=()=>{ showArchive=!showArchive; renderDrafts(idx); };
+}
 function renderDrafts(idx){
   const list=$("#draftList");
+  const searching=!!norm(query).trim();
+
+  if(searching){
+    const matched=idx.filter(matchQuery);
+    const active=matched.filter(e=>(e.status||"active")!=="archived");
+    const archived=matched.filter(e=>(e.status||"active")==="archived");
+    const total=active.length+archived.length;
+    let html=`<div class="searchcount">${total?`${total} résultat${total>1?'s':''}`:'Aucun test ne correspond'}</div>`;
+    if(active.length) html+=active.map(e=>draftRow(e,false)).join("");
+    if(archived.length) html+=`<div class="archlabel">Archives</div><div class="archgroup">${archived.map(e=>draftRow(e,true)).join("")}</div>`;
+    list.innerHTML=html;
+    bindDraftRows(list,idx);
+    return;
+  }
+
   const active=idx.filter(e=>(e.status||"active")!=="archived");
   const archived=idx.filter(e=>(e.status||"active")==="archived");
   let html = active.length
@@ -560,11 +613,7 @@ function renderDrafts(idx){
     if(showArchive) html += `<div class="archgroup">${archived.map(e=>draftRow(e,true)).join("")}</div>`;
   }
   list.innerHTML=html;
-  list.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openTest(b.dataset.open));
-  list.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delTest(b.dataset.del));
-  list.querySelectorAll("[data-arch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.arch,"archived"));
-  list.querySelectorAll("[data-unarch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unarch,"active"));
-  const tg=list.querySelector("[data-archtoggle]"); if(tg) tg.onclick=()=>{ showArchive=!showArchive; renderDrafts(idx); };
+  bindDraftRows(list,idx);
 }
 async function setStatus(id,status){
   const raw=await store.get(ITEM(id));
@@ -814,6 +863,13 @@ $("#newBtn").onclick=()=>{ state=blankState(); activeStep=0; render(); persist()
 $("#backupBtn").onclick=backupAll;
 $("#restoreBtn").onclick=triggerRestore;
 $("#restoreFile").onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) restoreFrom(f); };
+// Barre de recherche des tests
+(function(){
+  const ds=$("#draftSearch"), clr=$("#draftSearchClear");
+  if(!ds) return;
+  ds.oninput=async ()=>{ query=ds.value; if(clr) clr.hidden=!query; renderDrafts(await loadIndex()); };
+  if(clr) clr.onclick=async ()=>{ ds.value=""; query=""; clr.hidden=true; ds.focus(); renderDrafts(await loadIndex()); };
+})();
 $("#authBtn").onclick=()=>{
   if(!(window.Cloud && Cloud.enabled)) return;
   if(Cloud.user){ if(confirm("Se déconnecter ?\nVos tests restent enregistrés en ligne et sur cet appareil.")) Cloud.signOut(); }
@@ -829,7 +885,7 @@ $("#resetBtn").onclick=()=>{
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeExport(); });
 
 (async function init(){
-  const idx=await loadIndex();
+  const idx=await ensureSearchIndex();
   if(idx.length){ const raw=await store.get(ITEM(idx[0].id)); if(raw){ try{state=JSON.parse(raw);}catch(e){state=blankState();} } else state=blankState(); }
   else state=blankState();
   render(); renderDrafts(idx.length?idx:[]);
