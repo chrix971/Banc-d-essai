@@ -524,10 +524,17 @@ async function openTest(id){
   if(raw){ try{ state=JSON.parse(raw); activeStep=0; render(); toast("Test chargé"); }catch(e){} }
 }
 async function delTest(id){
+  let idx=await loadIndex();
+  const e=idx.find(x=>x.id===id);
+  const name=e?e.title:"ce test";
+  if(!confirm(`Supprimer « ${name} » ?\nCette action est définitive.`)) return;
   await store.del(ITEM(id));
-  let idx=(await loadIndex()).filter(x=>x.id!==id);
+  idx=idx.filter(x=>x.id!==id);
   await store.set(IDX_KEY, JSON.stringify(idx));
-  if(id===state.id){ state=blankState(); activeStep=0; render(); }
+  if(id===state.id){
+    if(idx.length){ await openTest(idx[0].id); }
+    else { state=blankState(); activeStep=0; render(); }
+  }
   renderDrafts(idx); toast("Test supprimé");
 }
 
