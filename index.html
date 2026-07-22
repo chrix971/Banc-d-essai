@@ -36,9 +36,16 @@
 <div class="wrap">
   <aside>
     <div class="navcard drafts">
-      <h3>Mes tests</h3>
+      <div class="cardhead">
+        <h3>Mes tests</h3>
+        <div class="cardtools">
+          <button id="backupBtn" title="Sauvegarder tous les tests dans un fichier .json"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v11"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></button>
+          <button id="restoreBtn" title="Restaurer depuis un fichier de sauvegarde"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V10"/><path d="m8 13 4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+      </div>
       <div class="navlist" id="draftList"></div>
       <button class="newbtn" id="newBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>Nouveau test</button>
+      <input type="file" id="restoreFile" accept="application/json,.json" hidden>
     </div>
     <div class="navcard pillars">
       <h3>Protocole</h3>
