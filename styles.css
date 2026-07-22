@@ -75,6 +75,9 @@
   .btn.ghost:hover{border-color:var(--ink-soft);color:var(--ink)}
   .btn.solid{background:var(--accent);color:#fff}
   .btn.solid:hover{background:var(--accent-ink)}
+  .btn.auth .who{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btn.auth.signed{border-color:#B9D9C9;background:#EEF7F2;color:var(--green)}
+  .btn.auth.signed:hover{border-color:var(--green)}
   .btn svg{width:15px;height:15px}
 
   /* ---------- LAYOUT ---------- */
