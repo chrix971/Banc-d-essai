@@ -44,6 +44,11 @@
           <button id="restoreBtn" title="Restaurer depuis un fichier de sauvegarde"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V10"/><path d="m8 13 4-4 4 4"/><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg></button>
         </div>
       </div>
+      <div class="draftsearch">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="draftSearch" type="text" placeholder="Rechercher (marque, modèle, note…)" autocomplete="off" spellcheck="false">
+        <button id="draftSearchClear" title="Effacer" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
       <div class="navlist" id="draftList"></div>
       <button class="newbtn" id="newBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>Nouveau test</button>
       <input type="file" id="restoreFile" accept="application/json,.json" hidden>
