@@ -266,7 +266,7 @@ function blankState(){
   return { id:"t_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     category:null, marque:"", modele:"", prix:"", config:"", date:new Date().toISOString().slice(0,10),
     testeur:"", fields:{}, ratings:{}, likes:[], dislikes:[], verdict:"", pourqui:"", note:null,
-    updated:Date.now() };
+    status:"active", updated:Date.now() };
 }
 function pillarsOf(){ return state.category ? CATEGORIES[state.category].pillars : []; }
 function fieldKey(p,f){ return "p"+p+"f"+f; }
@@ -327,6 +327,8 @@ function renderProgress(){
     pr.innerHTML=`${escapeHtml(state.marque)} ${escapeHtml(state.modele)}`.trim();
   } else pr.innerHTML='<span class="ph">Nouveau test</span>';
   pc.textContent=state.category?("· "+CATEGORIES[state.category].label):"";
+  const badge = state.status==="archived" ? '<span class="archbadge">Archivé</span>' : '';
+  pc.innerHTML = (state.category?("· "+CATEGORIES[state.category].label):"") + badge;
 }
 
 function render(){
@@ -508,7 +510,7 @@ function touch(debounced){
 function indexEntry(t){
   const title=(t.marque||t.modele)?`${t.marque||""} ${t.modele||""}`.trim():"Test sans titre";
   const cat=t.category&&CATEGORIES[t.category]?CATEGORIES[t.category].label:"—";
-  return {id:t.id,title,cat,updated:t.updated||Date.now()};
+  return {id:t.id,title,cat,updated:t.updated||Date.now(),status:t.status||"active"};
 }
 let cloudTimer=null;
 async function persist(){
@@ -529,19 +531,58 @@ async function persist(){
 }
 async function loadIndex(){ const raw=await store.get(IDX_KEY); try{return raw?JSON.parse(raw):[];}catch(e){return [];} }
 
-function renderDrafts(idx){
-  const list=$("#draftList");
-  if(!idx.length){ list.innerHTML='<p class="empty" style="padding:2px 10px 6px">Aucun test enregistré.</p>'; return; }
-  list.innerHTML=idx.map(e=>`
-    <div class="draftrow">
+let showArchive=false;
+function draftRow(e,archived){
+  const archiveBtn = archived
+    ? `<button class="act" data-unarch="${e.id}" title="Réactiver ce test"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 17V11"/><path d="m9 14 3-3 3 3"/></svg></button>`
+    : `<button class="act" data-arch="${e.id}" title="Archiver (test terminé)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/></svg></button>`;
+  return `<div class="draftrow">
       <button class="draftitem${e.id===state.id?' active':''}" data-open="${e.id}">
         <span class="dt">${escapeHtml(e.title)}</span>
         <span class="dm">${escapeHtml(e.cat)} · ${fmtDate(e.updated)}</span>
       </button>
-      <button class="del" data-del="${e.id}" title="Supprimer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
-    </div>`).join("");
+      ${archiveBtn}
+      <button class="act del" data-del="${e.id}" title="Supprimer définitivement"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+    </div>`;
+}
+function renderDrafts(idx){
+  const list=$("#draftList");
+  const active=idx.filter(e=>(e.status||"active")!=="archived");
+  const archived=idx.filter(e=>(e.status||"active")==="archived");
+  let html = active.length
+    ? active.map(e=>draftRow(e,false)).join("")
+    : '<p class="empty" style="padding:2px 10px 6px">Aucun test en cours.</p>';
+  if(archived.length){
+    html += `<button class="archtoggle" data-archtoggle>
+        <svg class="chev${showArchive?' open':''}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg>
+        Archives <span class="acount">${archived.length}</span>
+      </button>`;
+    if(showArchive) html += `<div class="archgroup">${archived.map(e=>draftRow(e,true)).join("")}</div>`;
+  }
+  list.innerHTML=html;
   list.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openTest(b.dataset.open));
   list.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delTest(b.dataset.del));
+  list.querySelectorAll("[data-arch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.arch,"archived"));
+  list.querySelectorAll("[data-unarch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unarch,"active"));
+  const tg=list.querySelector("[data-archtoggle]"); if(tg) tg.onclick=()=>{ showArchive=!showArchive; renderDrafts(idx); };
+}
+async function setStatus(id,status){
+  const raw=await store.get(ITEM(id));
+  if(!raw) return;
+  let t; try{ t=JSON.parse(raw); }catch(e){ return; }
+  t.status=status; t.updated=Date.now();
+  await store.set(ITEM(id), JSON.stringify(t));
+  if(id===state.id){ state.status=status; state.updated=t.updated; }
+  let idx=await loadIndex();
+  const i=idx.findIndex(x=>x.id===id);
+  if(i>=0) idx[i]=indexEntry(t);
+  idx.sort((a,b)=>b.updated-a.updated);
+  await store.set(IDX_KEY, JSON.stringify(idx));
+  if(status==="archived") showArchive=true;   // ouvrir les archives pour voir où il est parti
+  if(window.Cloud && Cloud.enabled && Cloud.user){ Cloud.saveTest(t).catch(()=>{}); }
+  renderDrafts(idx);
+  if(id===state.id) renderProgress();
+  toast(status==="archived"?"Test archivé":"Test réactivé");
 }
 async function openTest(id){
   if(id===state.id) return;
@@ -603,9 +644,7 @@ async function restoreFrom(file){
 
   for(const t of valid){
     await store.set(ITEM(t.id), JSON.stringify(t));
-    const title=(t.marque||t.modele)?`${t.marque||""} ${t.modele||""}`.trim():"Test sans titre";
-    const cat=t.category&&CATEGORIES[t.category]?CATEGORIES[t.category].label:"—";
-    const e={id:t.id,title,cat,updated:t.updated||Date.now()};
+    const e=indexEntry(t);
     const i=idx.findIndex(x=>x.id===t.id);
     if(i>=0) idx[i]=e; else idx.push(e);
   }
