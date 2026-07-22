@@ -505,17 +505,27 @@ function touch(debounced){
   else persist();
   if(!debounced){ renderNav(); renderProgress(); }
 }
+function indexEntry(t){
+  const title=(t.marque||t.modele)?`${t.marque||""} ${t.modele||""}`.trim():"Test sans titre";
+  const cat=t.category&&CATEGORIES[t.category]?CATEGORIES[t.category].label:"—";
+  return {id:t.id,title,cat,updated:t.updated||Date.now()};
+}
+let cloudTimer=null;
 async function persist(){
   await store.set(ITEM(state.id), JSON.stringify(state));
   let idx=await loadIndex();
-  const title=(state.marque||state.modele)?`${state.marque} ${state.modele}`.trim():"Test sans titre";
-  const cat=state.category?CATEGORIES[state.category].label:"—";
-  const e={id:state.id,title,cat,updated:state.updated};
+  const e=indexEntry(state);
   const i=idx.findIndex(x=>x.id===state.id);
   if(i>=0) idx[i]=e; else idx.unshift(e);
   idx.sort((a,b)=>b.updated-a.updated);
   await store.set(IDX_KEY, JSON.stringify(idx));
   renderDrafts(idx);
+  // Push cloud (débounce) si connecté
+  if(window.Cloud && Cloud.enabled && Cloud.user){
+    const snap=JSON.parse(JSON.stringify(state));
+    clearTimeout(cloudTimer);
+    cloudTimer=setTimeout(()=>{ Cloud.saveTest(snap).catch(()=>{}); }, 900);
+  }
 }
 async function loadIndex(){ const raw=await store.get(IDX_KEY); try{return raw?JSON.parse(raw):[];}catch(e){return [];} }
 
@@ -544,6 +554,7 @@ async function delTest(id){
   const name=e?e.title:"ce test";
   if(!confirm(`Supprimer « ${name} » ?\nCette action est définitive.`)) return;
   await store.del(ITEM(id));
+  if(window.Cloud && Cloud.enabled && Cloud.user){ Cloud.deleteTest(id).catch(()=>{}); }
   idx=idx.filter(x=>x.id!==id);
   await store.set(IDX_KEY, JSON.stringify(idx));
   if(id===state.id){
@@ -604,6 +615,60 @@ async function restoreFrom(file){
   if(raw){ try{ state=JSON.parse(raw); activeStep=0; render(); }catch(e){} }
   renderDrafts(idx);
   toast(`${valid.length} test${valid.length>1?'s':''} restauré${valid.length>1?'s':''}`);
+}
+
+/* =========================================================
+   SYNCHRONISATION CLOUD (Firebase)
+   ========================================================= */
+let syncing=false;
+async function cloudSync(silent){
+  if(!(window.Cloud && Cloud.enabled && Cloud.user) || syncing) return;
+  syncing=true;
+  try{
+    const remote=await Cloud.fetchAll();            // tableau d'états distants
+    const remoteMap=new Map(remote.map(t=>[t.id,t]));
+    let idx=await loadIndex();
+    const localMap=new Map();
+    for(const e of idx){ const raw=await store.get(ITEM(e.id)); if(raw){ try{ localMap.set(e.id,JSON.parse(raw)); }catch(_){} } }
+    const ids=new Set([...remoteMap.keys(), ...localMap.keys()]);
+    let changed=false;
+    for(const id of ids){
+      const r=remoteMap.get(id), l=localMap.get(id);
+      if(r && !l){ await store.set(ITEM(id),JSON.stringify(r)); changed=true; }         // nouveau depuis le cloud
+      else if(l && !r){ await Cloud.saveTest(l).catch(()=>{}); }                         // local seul → pousser
+      else if(r && l){
+        if((r.updated||0)>(l.updated||0)){ await store.set(ITEM(id),JSON.stringify(r)); changed=true; }
+        else if((l.updated||0)>(r.updated||0)){ await Cloud.saveTest(l).catch(()=>{}); }
+      }
+    }
+    // Reconstruire l'index à partir du local fusionné
+    const newIdx=[];
+    for(const id of ids){ const raw=await store.get(ITEM(id)); if(!raw) continue; try{ newIdx.push(indexEntry(JSON.parse(raw))); }catch(_){} }
+    newIdx.sort((a,b)=>b.updated-a.updated);
+    await store.set(IDX_KEY,JSON.stringify(newIdx));
+    // Recharger l'état courant s'il a été mis à jour
+    const cur=await store.get(ITEM(state.id));
+    if(cur){ try{ const fresh=JSON.parse(cur); if((fresh.updated||0)!==(state.updated||0)){ state=fresh; render(); } }catch(_){} }
+    renderDrafts(newIdx);
+    if(!silent) toast(changed?"Synchronisé":"À jour");
+  }catch(e){ if(!silent) toast("Synchronisation impossible — vérifiez la connexion"); }
+  finally{ syncing=false; }
+}
+
+function updateAuthUI(user){
+  const b=$("#authBtn"); if(!b) return;
+  if(!(window.Cloud && Cloud.enabled)){ b.hidden=true; return; }
+  b.hidden=false;
+  if(user){
+    const name=user.displayName?user.displayName.split(" ")[0]:(user.email||"Compte");
+    b.classList.add("signed");
+    b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.5 9 4.5 4.5 0 0 0 7 18"/><path d="m9 13 2 2 4-4"/></svg><span class="who">${escapeHtml(name)}</span>`;
+    b.title=`Connecté — synchro active (${user.email||""}). Cliquer pour se déconnecter.`;
+  } else {
+    b.classList.remove("signed");
+    b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.5 9 4.5 4.5 0 0 0 7 18"/></svg><span>Se connecter</span>`;
+    b.title="Se connecter pour synchroniser vos tests sur tous vos appareils";
+  }
 }
 
 /* =========================================================
@@ -710,6 +775,13 @@ $("#newBtn").onclick=()=>{ state=blankState(); activeStep=0; render(); persist()
 $("#backupBtn").onclick=backupAll;
 $("#restoreBtn").onclick=triggerRestore;
 $("#restoreFile").onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) restoreFrom(f); };
+$("#authBtn").onclick=()=>{
+  if(!(window.Cloud && Cloud.enabled)) return;
+  if(Cloud.user){ if(confirm("Se déconnecter ?\nVos tests restent enregistrés en ligne et sur cet appareil.")) Cloud.signOut(); }
+  else { toast("Ouverture de la connexion…"); Cloud.signIn(); }
+};
+// Re-synchroniser en revenant sur l'onglet
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && window.Cloud && Cloud.enabled && Cloud.user) cloudSync(true); });
 $("#resetBtn").onclick=()=>{
   if(confirm("Réinitialiser ce test ? Les observations non exportées seront perdues.")){
     const id=state.id; state=blankState(); state.id=id; activeStep=0; render(); persist(); toast("Test réinitialisé");
@@ -723,4 +795,11 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeExport(); });
   else state=blankState();
   render(); renderDrafts(idx.length?idx:[]);
   if(store.mode==="mem") toast("Sauvegarde auto indisponible — pensez à exporter une sauvegarde");
+  // Cloud (Firebase) : afficher l'état de connexion et synchroniser une fois connecté
+  if(window.Cloud && Cloud.enabled){
+    updateAuthUI(Cloud.user);
+    Cloud.onAuth(async (user)=>{ updateAuthUI(user); if(user) await cloudSync(false); });
+  } else {
+    updateAuthUI(null); // masque le bouton si Firebase n'est pas configuré
+  }
 })();
