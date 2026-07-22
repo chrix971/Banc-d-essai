@@ -572,6 +572,7 @@ function draftRow(e,archived){
         <span class="dt">${escapeHtml(e.title)}</span>
         <span class="dm">${escapeHtml(e.cat)} · ${fmtDate(e.updated)}</span>
       </button>
+      <button class="act" data-dup="${e.id}" title="Dupliquer (nouveau modèle, même structure)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
       ${archiveBtn}
       <button class="act del" data-del="${e.id}" title="Supprimer définitivement"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
     </div>`;
@@ -581,6 +582,7 @@ function bindDraftRows(list,idx){
   list.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delTest(b.dataset.del));
   list.querySelectorAll("[data-arch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.arch,"archived"));
   list.querySelectorAll("[data-unarch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unarch,"active"));
+  list.querySelectorAll("[data-dup]").forEach(b=>b.onclick=()=>duplicateTest(b.dataset.dup));
   const tg=list.querySelector("[data-archtoggle]"); if(tg) tg.onclick=()=>{ showArchive=!showArchive; renderDrafts(idx); };
 }
 function renderDrafts(idx){
@@ -637,6 +639,22 @@ async function openTest(id){
   if(id===state.id) return;
   const raw=await store.get(ITEM(id));
   if(raw){ try{ state=JSON.parse(raw); activeStep=0; render(); toast("Test chargé"); }catch(e){} }
+}
+async function duplicateTest(id){
+  const raw=await store.get(ITEM(id));
+  if(!raw){ toast("Test introuvable"); return; }
+  let src; try{ src=JSON.parse(raw); }catch(e){ toast("Test illisible"); return; }
+  // On conserve la structure (catégorie → mêmes piliers/champs) et les infos qui se répètent,
+  // on repart avec un modèle vierge et toutes les observations remises à zéro.
+  const dup=blankState();
+  dup.category=src.category||null;
+  dup.marque=src.marque||"";
+  dup.testeur=src.testeur||"";
+  state=dup; activeStep=0;
+  render();
+  await persist();
+  const m=$("#f_modele"); if(m) m.focus();
+  toast("Test dupliqué — renseignez le nouveau modèle");
 }
 async function delTest(id){
   let idx=await loadIndex();
