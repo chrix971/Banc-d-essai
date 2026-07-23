@@ -9,6 +9,11 @@
     --accent:#2A3BD4;      /* ultramarine — signature */
     --accent-ink:#1B2AA6;
     --amber:#D9772B;       /* on aime moins / alerte */
+    --red:#C8372E;         /* suppression / corbeille */
+    --red-bg:#FCEEEC;
+    --red-line:#F2C9C4;
+    --green-bg:#EEF7F2;
+    --green-line:#B9D9C9;
     --green:#1C9B6A;       /* validé */
     --shadow:0 1px 0 rgba(20,22,28,.04), 0 6px 24px -12px rgba(20,22,28,.18);
     --radius:14px;
@@ -134,7 +139,8 @@
   .draftrow .act{opacity:.5;background:transparent;color:var(--ink-faint);padding:5px;border-radius:7px;line-height:0;transition:.14s;flex-shrink:0}
   .draftrow:hover .act{opacity:.85}
   .draftrow .act:hover{opacity:1;color:#fff;background:var(--accent)}
-  .draftrow .act.del:hover{background:var(--amber)}
+  .draftrow .act.arch:hover{background:var(--green)}
+  .draftrow .act.del:hover{background:var(--red)}
   .archtoggle{width:100%;margin-top:4px;background:transparent;color:var(--ink-faint);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
     display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:8px}
   .archtoggle:hover{background:var(--paper);color:var(--ink-soft)}
@@ -142,15 +148,16 @@
   .archtoggle .chev.open{transform:rotate(90deg)}
   .archtoggle .acount{margin-left:auto;font-family:'JetBrains Mono';background:var(--line);color:var(--ink-soft);
     padding:1px 7px;border-radius:20px;font-size:10.5px;letter-spacing:0}
-  .archtoggle.trash:hover{color:var(--amber)}
+  .archtoggle.arch:hover{color:var(--green)}
+  .archtoggle.trash:hover{color:var(--red)}
   .archtoggle .emptybtn{margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.04em;
-    color:var(--amber);border:1px solid #F0D6BE;background:#FBF1E7;padding:2px 7px;border-radius:20px}
-  .archtoggle .emptybtn:hover{background:var(--amber);color:#fff;border-color:var(--amber)}
-  .archbadge.trash{color:var(--amber)}
+    color:var(--red);border:1px solid var(--red-line);background:var(--red-bg);padding:2px 7px;border-radius:20px}
+  .archtoggle .emptybtn:hover{background:var(--red);color:#fff;border-color:var(--red)}
   .archgroup{border-top:1px solid var(--line);margin-top:2px;padding-top:3px}
   .archgroup .draftitem .dt{color:var(--ink-soft);font-weight:500}
   .archbadge{margin-left:8px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--amber);background:#FBF1E7;border:1px solid #F0D6BE;padding:1px 6px;border-radius:20px;white-space:nowrap}
+    color:var(--green);background:var(--green-bg);border:1px solid var(--green-line);padding:1px 6px;border-radius:20px;white-space:nowrap}
+  .archbadge.trash{color:var(--red);background:var(--red-bg);border-color:var(--red-line)}
   .newbtn{width:calc(100% - 16px);margin:0 8px 10px;padding:9px;border-radius:9px;border:1px dashed var(--line-strong);
     background:transparent;color:var(--ink-soft);font-size:12.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:7px}
   .newbtn:hover{border-color:var(--accent);color:var(--accent)}
