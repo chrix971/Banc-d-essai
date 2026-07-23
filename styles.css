@@ -168,7 +168,32 @@
   section.step.on{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
-  .stephead{margin-bottom:18px}
+  .stephead{position:relative;margin-bottom:18px;border-radius:var(--radius);overflow:hidden}
+  .stephead.hascover{padding:20px 200px 15px 20px;min-height:180px;box-shadow:var(--shadow)}
+  .coverlayer{position:absolute;inset:0;z-index:0;overflow:hidden}
+  /* image carrée calée à droite, son bord gauche se fond dans la couleur d'ambiance */
+  .coverimg{position:absolute;top:0;right:0;bottom:0;aspect-ratio:1/1;
+    background-size:cover;background-position:center;background-repeat:no-repeat;
+    -webkit-mask-image:linear-gradient(to right,transparent 0%,#000 58%);
+    mask-image:linear-gradient(to right,transparent 0%,#000 58%)}
+  .coverlayer::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(100deg,rgba(16,18,24,.93) 0%,rgba(16,18,24,.80) 42%,rgba(16,18,24,.34) 74%,rgba(16,18,24,.14) 100%)}
+  .steprow{position:relative;z-index:1;display:flex;gap:16px;align-items:flex-start}
+  .steptext{flex:1;min-width:0}
+  .stephead.hascover h1{color:#fff}
+  .stephead.hascover p.sub{color:rgba(255,255,255,.84)}
+  .stephead.hascover .eyebrow .n{color:#93A2FF}
+  .stephead.hascover .eyebrow .rule{background:rgba(255,255,255,.28)}
+  .stephead.hascover .eyebrow .cnt{color:rgba(255,255,255,.62)}
+  /* boutons de la photo de fond */
+  .covertools{position:relative;z-index:1;display:flex;gap:6px;margin-top:12px}
+  .ctool{font-size:11px;font-weight:600;padding:5px 10px;border-radius:20px;
+    border:1px solid var(--line-strong);background:var(--card);color:var(--ink-soft);transition:.14s}
+  .ctool:hover{border-color:var(--accent);color:var(--accent)}
+  .ctool.del:hover{border-color:var(--red);color:var(--red)}
+  .stephead.hascover .ctool{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.12);color:#fff}
+  .stephead.hascover .ctool:hover{background:rgba(255,255,255,.24);border-color:#fff}
+  .stephead.hascover .ctool.del:hover{background:var(--red);border-color:var(--red)}
   .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:8px}
   .eyebrow .n{font-family:'JetBrains Mono';font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.04em}
   .eyebrow .rule{height:1px;flex:1;background:var(--line)}
@@ -264,6 +289,7 @@
   .empty{color:var(--ink-faint);font-size:12.5px;padding:4px 2px 8px}
 
   @media(max-width:860px){
+    .stephead.hascover{padding:16px 152px 14px 16px;min-height:136px}
     .wrap{grid-template-columns:1fr;padding-bottom:80px}
     aside{position:static;order:2}
     .navcard.pillars{order:-1}
