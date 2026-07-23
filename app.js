@@ -274,7 +274,7 @@ function blankState(){
   return { id:"t_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     category:null, marque:"", modele:"", prix:"", config:"", date:new Date().toISOString().slice(0,10),
     testeur:"", fields:{}, ratings:{}, likes:[], dislikes:[], verdict:"", pourqui:"", note:null,
-    status:"active", updated:Date.now() };
+    cover:null, coverColor:null, status:"active", updated:Date.now() };
 }
 function pillarsOf(){ return state.category ? CATEGORIES[state.category].pillars : []; }
 function fieldKey(p,f){ return "p"+p+"f"+f; }
@@ -340,6 +340,83 @@ function renderProgress(){
   pc.innerHTML = (state.category?("· "+CATEGORIES[state.category].label):"") + badge;
 }
 
+/* =========================================================
+   PHOTOS — compression avant stockage
+   Les photos brutes sont bien trop lourdes pour le stockage navigateur
+   et pour Firebase (1 Mo max par test). On les redimensionne et on les
+   recompresse systématiquement à l'import.
+   ========================================================= */
+const COVER_SIDE=520,  COVER_Q=0.72;     // photo de fond (carrée, à droite)
+const MAX_TEST_BYTES=800*1024;           // marge de sécurité sous la limite Firebase
+
+// Couleur dominante de l'image, pour peindre le reste de la bannière
+function dominantColor(canvas){
+  const w=Math.min(canvas.width,48), h=Math.min(canvas.height,48);
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const cx=c.getContext("2d"); cx.drawImage(canvas,0,0,w,h);
+  let d;
+  try{ d=cx.getImageData(0,0,w,h).data; }catch(e){ return "#242832"; }
+  let r=0,g=0,b=0,n=0;
+  for(let i=0;i<d.length;i+=4){
+    const R=d[i],G=d[i+1],B=d[i+2];
+    const max=Math.max(R,G,B), min=Math.min(R,G,B);
+    if(max>246 && min>232) continue;      // ignorer le blanc pur (fonds de studio)
+    if(max<16) continue;                  // ignorer le noir pur
+    const weight=1+((max-min)/255)*2.2;   // favoriser les pixels colorés
+    r+=R*weight; g+=G*weight; b+=B*weight; n+=weight;
+  }
+  if(!n) return "#242832";
+  const tone=v=>Math.max(0,Math.min(255,Math.round((v/n)*0.88)));  // légèrement assombri
+  return "#"+[tone(r),tone(g),tone(b)].map(v=>v.toString(16).padStart(2,"0")).join("");
+}
+
+function shrinkImage(file,{square,maxW,quality,withColor}){
+  return new Promise((resolve,reject)=>{
+    if(!file || !/^image\//.test(file.type||"")){ reject(new Error("format")); return; }
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      let sx=0,sy=0,sw=img.naturalWidth,sh=img.naturalHeight,w,h;
+      if(square){
+        const side=Math.min(sw,sh);
+        sx=(sw-side)/2; sy=(sh-side)/2; sw=sh=side;
+        w=h=Math.min(maxW,side);
+      }else{
+        const r=Math.min(maxW/sw,1);
+        w=Math.round(sw*r); h=Math.round(sh*r);
+      }
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      const ctx=c.getContext("2d");
+      ctx.fillStyle="#fff"; ctx.fillRect(0,0,w,h);   // fond blanc pour les PNG transparents
+      ctx.drawImage(img,sx,sy,sw,sh,0,0,w,h);
+      resolve({ data:c.toDataURL("image/jpeg",quality), color: withColor?dominantColor(c):null });
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error("lecture")); };
+    img.src=url;
+  });
+}
+function testBytes(extra){ try{ return JSON.stringify(state).length+(extra?extra.length:0); }catch(e){ return 0; } }
+async function handleImage(file){
+  if(!file) return;
+  let res;
+  try{ res = await shrinkImage(file,{square:true,maxW:COVER_SIDE,quality:COVER_Q,withColor:true}); }
+  catch(e){ toast("Image illisible — essayez un JPEG ou un PNG"); return; }
+
+  const previous = state.cover||"";
+  if(testBytes(res.data)-previous.length > MAX_TEST_BYTES){
+    toast("Photo trop lourde pour ce test"); return;
+  }
+  state.cover=res.data; state.coverColor=res.color||null;
+  render(); await persist();
+  toast("Photo du produit ajoutée");
+}
+async function removeImage(){
+  state.cover=null; state.coverColor=null;
+  render(); await persist();
+  toast("Photo retirée");
+}
+
 function render(){
   const defs=stepDefs();
   if(activeStep>=defs.length) activeStep=defs.length-1;
@@ -358,18 +435,43 @@ function render(){
   renderNav(); renderProgress();
 }
 
+/* ---- En-tête d'étape avec photo du produit en bannière ---- */
+function stepheadHTML(eyebrow,title,sub){
+  const cover=state.cover||null;
+  const coverLayer = cover
+    ? `<div class="coverlayer" style="background-color:${state.coverColor||'#242832'}">
+         <div class="coverimg" style="background-image:url('${cover}')"></div>
+       </div>`
+    : "";
+  const coverBtns = `<div class="covertools">
+      ${cover?`<button class="ctool" data-cover="pick" title="Changer la photo du produit">Changer</button>
+               <button class="ctool del" data-cover="del" title="Retirer la photo du produit">Retirer</button>`
+             :`<button class="ctool" data-cover="pick" title="Ajouter une photo du produit en fond">＋ Photo du produit</button>`}
+    </div>`;
+  return `<div class="stephead${cover?' hascover':''}">
+      ${coverLayer}
+      <div class="steprow">
+        <div class="steptext">
+          <div class="eyebrow">${eyebrow}</div>
+          <h1>${title}</h1>
+          <p class="sub">${sub}</p>
+        </div>
+      </div>
+      ${coverBtns}
+    </div>`;
+}
+
 function identHTML(){
   const cats=Object.entries(CATEGORIES).map(([k,v])=>
     `<button class="catchip${state.category===k?' sel':''}" data-cat="${k}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${v.icon}</svg>
       <span>${v.label}</span></button>`).join("");
   const disabled = !state.category;
-  return `<div class="stephead">
-      <div class="eyebrow"><span class="n">00 · SETUP</span><span class="rule"></span></div>
-      <h1>Identité du produit</h1>
-      <p class="sub">Choisissez la catégorie : la checklist des piliers de test se génère automatiquement en dessous. Renseignez ensuite la fiche.</p>
-    </div>
-    <div class="field"><label class="lbl">Catégorie du produit</label><div class="catgrid">${cats}</div></div>
+  return stepheadHTML(
+      `<span class="n">00 · SETUP</span><span class="rule"></span>`,
+      "Identité du produit",
+      "Choisissez la catégorie : la checklist des piliers de test se génère automatiquement en dessous. Renseignez ensuite la fiche.") +
+    `<div class="field"><label class="lbl">Catégorie du produit</label><div class="catgrid">${cats}</div></div>
     <div class="field">
       <div class="idgrid">
         <div class="cell"><label class="lbl">Marque</label><input id="f_marque" placeholder="ex. Sony" value="${escapeAttr(state.marque)}"></div>
@@ -398,23 +500,21 @@ function pillarHTML(pi){
       <textarea data-field="${key}" placeholder="Vos observations concrètes, chiffres, comparaisons…">${escapeHtml(val)}</textarea>
     </div>`;
   }).join("");
-  return `<div class="stephead">
-      <div class="eyebrow"><span class="n">${String(pi+1).padStart(2,'0')} · PILIER</span><span class="rule"></span><span class="cnt mono">${s.filled}/${s.total}</span></div>
-      <h1>${p.name}</h1>
-      <p class="sub">Notez des faits vérifiables : chaque observation nourrira une affirmation prouvée dans l'article.</p>
-    </div>${fields}`;
+  return stepheadHTML(
+      `<span class="n">${String(pi+1).padStart(2,'0')} · PILIER</span><span class="rule"></span><span class="cnt mono">${s.filled}/${s.total}</span>`,
+      escapeHtml(p.name),
+      "Notez des faits vérifiables : chaque observation nourrira une affirmation prouvée dans l'article.") + fields;
 }
 
 function synthHTML(){
   const likes=state.likes.map((t,i)=>chipHTML(t,i,'like')).join("")||'<span class="empty">Aucun point fort ajouté.</span>';
   const dislikes=state.dislikes.map((t,i)=>chipHTML(t,i,'dislike')).join("")||'<span class="empty">Aucun point faible ajouté.</span>';
   const scores=[];for(let n=0;n<=10;n+=0.5){scores.push(`<button data-score="${n}" class="${state.note===n?'sel':''}">${n}</button>`);}
-  return `<div class="stephead">
-      <div class="eyebrow"><span class="n">★ · SYNTHÈSE</span><span class="rule"></span></div>
-      <h1>Verdict & synthèse</h1>
-      <p class="sub">Le condensé qui structurera la fiche : « On aime / On aime moins », note globale et recommandation.</p>
-    </div>
-    <div class="synthgrid">
+  return stepheadHTML(
+      `<span class="n">★ · SYNTHÈSE</span><span class="rule"></span>`,
+      "Verdict &amp; synthèse",
+      "Le condensé qui structurera la fiche : « On aime / On aime moins », note globale et recommandation.") +
+    `<div class="synthgrid">
       <div class="likecard pos"><h4><span class="dot">●</span> On aime</h4>
         <div class="chips" id="likeChips">${likes}</div>
         <div class="addrow"><input id="likeIn" placeholder="Ajouter un point fort…"><button data-add="like">+</button></div>
@@ -458,6 +558,11 @@ function stepnavHTML(total){
    BINDINGS
    ========================================================= */
 function bindStep(d){
+  // Photo du produit : bouton présent sur toutes les étapes
+  document.querySelectorAll("[data-cover]").forEach(b=>b.onclick=()=>{
+    if(b.dataset.cover==="pick"){ const i=$("#coverFile"); i.value=""; i.click(); }
+    else removeImage();
+  });
   if(d.type==="ident"){
     document.querySelectorAll("[data-cat]").forEach(b=>b.onclick=()=>{
       const c=b.dataset.cat;
@@ -533,6 +638,7 @@ function indexEntry(t){
 }
 let cloudTimer=null;
 async function persist(){
+  if(state.photos) delete state.photos;   // vignettes de section : fonction retirée, on libère l'espace
   await store.set(ITEM(state.id), JSON.stringify(state));
   let idx=await loadIndex();
   const e=indexEntry(state);
@@ -984,6 +1090,7 @@ $("#newBtn").onclick=()=>{ state=blankState(); activeStep=0; render(); persist()
 $("#backupBtn").onclick=backupAll;
 $("#restoreBtn").onclick=triggerRestore;
 $("#restoreFile").onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) restoreFrom(f); };
+$("#coverFile").onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(f) handleImage(f); };
 // Barre de recherche des tests
 (function(){
   const ds=$("#draftSearch"), clr=$("#draftSearchClear");
