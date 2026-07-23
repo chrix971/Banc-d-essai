@@ -259,6 +259,14 @@ const store = {
 };
 const IDX_KEY="be:index";
 const ITEM=id=>"be:item:"+id;
+const TOMB_KEY="be:tombs";   // registre local des suppressions {id: horodatage}
+async function loadTombs(){ const raw=await store.get(TOMB_KEY); try{return raw?JSON.parse(raw):{};}catch(e){return {};} }
+async function saveTombs(t){
+  // purge des marqueurs de plus de 180 jours pour éviter qu'ils s'accumulent
+  const limit=Date.now()-180*24*3600*1000;
+  for(const k of Object.keys(t)){ if(!t[k] || t[k]<limit) delete t[k]; }
+  await store.set(TOMB_KEY, JSON.stringify(t));
+}
 
 let state=null, activeStep=0, saveTimer=null;
 
@@ -327,7 +335,8 @@ function renderProgress(){
     pr.innerHTML=`${escapeHtml(state.marque)} ${escapeHtml(state.modele)}`.trim();
   } else pr.innerHTML='<span class="ph">Nouveau test</span>';
   pc.textContent=state.category?("· "+CATEGORIES[state.category].label):"";
-  const badge = state.status==="archived" ? '<span class="archbadge">Archivé</span>' : '';
+  const badge = state.status==="archived" ? '<span class="archbadge">Archivé</span>'
+              : state.status==="trash" ? '<span class="archbadge trash">Corbeille</span>' : '';
   pc.innerHTML = (state.category?("· "+CATEGORIES[state.category].label):"") + badge;
 }
 
@@ -556,6 +565,7 @@ async function ensureSearchIndex(){
 }
 
 let showArchive=false;
+let showTrash=false;
 let query="";
 function matchQuery(e){
   const terms=norm(query).split(/\s+/).filter(Boolean);
@@ -563,56 +573,86 @@ function matchQuery(e){
   const blob=e.search||norm((e.title||"")+" "+(e.cat||""));
   return terms.every(t=>blob.includes(t));
 }
-function draftRow(e,archived){
-  const archiveBtn = archived
-    ? `<button class="act" data-unarch="${e.id}" title="Réactiver ce test"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 17V11"/><path d="m9 14 3-3 3 3"/></svg></button>`
-    : `<button class="act" data-arch="${e.id}" title="Archiver (test terminé)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/></svg></button>`;
+const ICO={
+  dup:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  archive:'<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/>',
+  unarchive:'<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M12 17V11"/><path d="m9 14 3-3 3 3"/>',
+  trash:'<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
+  restore:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  purge:'<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="m10 11 4 4m0-4-4 4"/>'
+};
+function act(attr,id,title,icon,cls){
+  return `<button class="act${cls?' '+cls:''}" data-${attr}="${id}" title="${title}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon}</svg></button>`;
+}
+function draftRow(e,group){
+  let buttons;
+  if(group==="trash"){
+    buttons = act("untrash",e.id,"Restaurer ce test",ICO.restore)
+            + act("purge",e.id,"Supprimer définitivement",ICO.purge,"del");
+  } else {
+    buttons = act("dup",e.id,"Dupliquer (nouveau modèle, même structure)",ICO.dup)
+            + (group==="archived"
+                ? act("unarch",e.id,"Réactiver ce test",ICO.unarchive)
+                : act("arch",e.id,"Archiver (test terminé)",ICO.archive))
+            + act("trash",e.id,"Mettre à la corbeille",ICO.trash,"del");
+  }
   return `<div class="draftrow">
       <button class="draftitem${e.id===state.id?' active':''}" data-open="${e.id}">
         <span class="dt">${escapeHtml(e.title)}</span>
         <span class="dm">${escapeHtml(e.cat)} · ${fmtDate(e.updated)}</span>
       </button>
-      <button class="act" data-dup="${e.id}" title="Dupliquer (nouveau modèle, même structure)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
-      ${archiveBtn}
-      <button class="act del" data-del="${e.id}" title="Supprimer définitivement"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+      ${buttons}
     </div>`;
 }
 function bindDraftRows(list,idx){
   list.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openTest(b.dataset.open));
-  list.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delTest(b.dataset.del));
   list.querySelectorAll("[data-arch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.arch,"archived"));
   list.querySelectorAll("[data-unarch]").forEach(b=>b.onclick=()=>setStatus(b.dataset.unarch,"active"));
+  list.querySelectorAll("[data-trash]").forEach(b=>b.onclick=()=>setStatus(b.dataset.trash,"trash"));
+  list.querySelectorAll("[data-untrash]").forEach(b=>b.onclick=()=>setStatus(b.dataset.untrash,"active"));
+  list.querySelectorAll("[data-purge]").forEach(b=>b.onclick=()=>purgeTest(b.dataset.purge));
   list.querySelectorAll("[data-dup]").forEach(b=>b.onclick=()=>duplicateTest(b.dataset.dup));
-  const tg=list.querySelector("[data-archtoggle]"); if(tg) tg.onclick=()=>{ showArchive=!showArchive; renderDrafts(idx); };
+  const ta=list.querySelector("[data-archtoggle]"); if(ta) ta.onclick=()=>{ showArchive=!showArchive; renderDrafts(idx); };
+  const tt=list.querySelector("[data-trashtoggle]"); if(tt) tt.onclick=()=>{ showTrash=!showTrash; renderDrafts(idx); };
+  const ve=list.querySelector("[data-emptytrash]"); if(ve) ve.onclick=(ev)=>{ ev.stopPropagation(); emptyTrash(); };
 }
+function statusOf(e){ return e.status||"active"; }
 function renderDrafts(idx){
   const list=$("#draftList");
   const searching=!!norm(query).trim();
+  const pick=(src,st)=>src.filter(e=>statusOf(e)===st);
 
   if(searching){
-    const matched=idx.filter(matchQuery);
-    const active=matched.filter(e=>(e.status||"active")!=="archived");
-    const archived=matched.filter(e=>(e.status||"active")==="archived");
-    const total=active.length+archived.length;
+    const m=idx.filter(matchQuery);
+    const active=pick(m,"active"), archived=pick(m,"archived"), trashed=pick(m,"trash");
+    const total=active.length+archived.length+trashed.length;
     let html=`<div class="searchcount">${total?`${total} résultat${total>1?'s':''}`:'Aucun test ne correspond'}</div>`;
-    if(active.length) html+=active.map(e=>draftRow(e,false)).join("");
-    if(archived.length) html+=`<div class="archlabel">Archives</div><div class="archgroup">${archived.map(e=>draftRow(e,true)).join("")}</div>`;
+    if(active.length) html+=active.map(e=>draftRow(e,"active")).join("");
+    if(archived.length) html+=`<div class="archlabel">Archives</div><div class="archgroup">${archived.map(e=>draftRow(e,"archived")).join("")}</div>`;
+    if(trashed.length) html+=`<div class="archlabel">Corbeille</div><div class="archgroup">${trashed.map(e=>draftRow(e,"trash")).join("")}</div>`;
     list.innerHTML=html;
     bindDraftRows(list,idx);
     return;
   }
 
-  const active=idx.filter(e=>(e.status||"active")!=="archived");
-  const archived=idx.filter(e=>(e.status||"active")==="archived");
+  const active=pick(idx,"active"), archived=pick(idx,"archived"), trashed=pick(idx,"trash");
   let html = active.length
-    ? active.map(e=>draftRow(e,false)).join("")
+    ? active.map(e=>draftRow(e,"active")).join("")
     : '<p class="empty" style="padding:2px 10px 6px">Aucun test en cours.</p>';
   if(archived.length){
     html += `<button class="archtoggle" data-archtoggle>
         <svg class="chev${showArchive?' open':''}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg>
         Archives <span class="acount">${archived.length}</span>
       </button>`;
-    if(showArchive) html += `<div class="archgroup">${archived.map(e=>draftRow(e,true)).join("")}</div>`;
+    if(showArchive) html += `<div class="archgroup">${archived.map(e=>draftRow(e,"archived")).join("")}</div>`;
+  }
+  if(trashed.length){
+    html += `<button class="archtoggle trash" data-trashtoggle>
+        <svg class="chev${showTrash?' open':''}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg>
+        Corbeille <span class="acount">${trashed.length}</span>
+        ${showTrash?'<span class="emptybtn" data-emptytrash role="button" title="Supprimer définitivement tous les tests de la corbeille">Vider</span>':''}
+      </button>`;
+    if(showTrash) html += `<div class="archgroup">${trashed.map(e=>draftRow(e,"trash")).join("")}</div>`;
   }
   list.innerHTML=html;
   bindDraftRows(list,idx);
@@ -629,11 +669,12 @@ async function setStatus(id,status){
   if(i>=0) idx[i]=indexEntry(t);
   idx.sort((a,b)=>b.updated-a.updated);
   await store.set(IDX_KEY, JSON.stringify(idx));
-  if(status==="archived") showArchive=true;   // ouvrir les archives pour voir où il est parti
+  if(status==="archived") showArchive=true;   // ouvrir la section pour voir où il est parti
+  if(status==="trash") showTrash=true;
   if(window.Cloud && Cloud.enabled && Cloud.user){ Cloud.saveTest(t).catch(()=>{}); }
   renderDrafts(idx);
   if(id===state.id) renderProgress();
-  toast(status==="archived"?"Test archivé":"Test réactivé");
+  toast(status==="archived"?"Test archivé":status==="trash"?"Déplacé dans la corbeille":"Test restauré");
 }
 async function openTest(id){
   if(id===state.id) return;
@@ -656,20 +697,42 @@ async function duplicateTest(id){
   const m=$("#f_modele"); if(m) m.focus();
   toast("Test dupliqué — renseignez le nouveau modèle");
 }
-async function delTest(id){
-  let idx=await loadIndex();
+// Suppression définitive : c'est ici que le mécanisme de propagation s'active.
+async function purgeIds(ids){
+  const tombs=await loadTombs();
+  const ts=Date.now();
+  for(const id of ids){
+    await store.del(ITEM(id));
+    tombs[id]=ts;
+    if(window.Cloud && Cloud.enabled && Cloud.user){ Cloud.deleteTest(id,ts).catch(()=>{}); }
+  }
+  await saveTombs(tombs);
+  let idx=(await loadIndex()).filter(x=>!ids.includes(x.id));
+  await store.set(IDX_KEY, JSON.stringify(idx));
+  if(ids.includes(state.id)){
+    const first=idx[0];
+    if(first){ const raw=await store.get(ITEM(first.id)); if(raw){ try{ state=JSON.parse(raw); }catch(_){ state=blankState(); } } else state=blankState(); }
+    else state=blankState();
+    activeStep=0; render();
+  }
+  renderDrafts(idx);
+  return idx;
+}
+async function purgeTest(id){
+  const idx=await loadIndex();
   const e=idx.find(x=>x.id===id);
   const name=e?e.title:"ce test";
-  if(!confirm(`Supprimer « ${name} » ?\nCette action est définitive.`)) return;
-  await store.del(ITEM(id));
-  if(window.Cloud && Cloud.enabled && Cloud.user){ Cloud.deleteTest(id).catch(()=>{}); }
-  idx=idx.filter(x=>x.id!==id);
-  await store.set(IDX_KEY, JSON.stringify(idx));
-  if(id===state.id){
-    if(idx.length){ await openTest(idx[0].id); }
-    else { state=blankState(); activeStep=0; render(); }
-  }
-  renderDrafts(idx); toast("Test supprimé");
+  if(!confirm(`Supprimer définitivement « ${name} » ?\nCette action est irréversible et s'appliquera à tous vos appareils.`)) return;
+  await purgeIds([id]);
+  toast("Test supprimé définitivement");
+}
+async function emptyTrash(){
+  const idx=await loadIndex();
+  const ids=idx.filter(e=>statusOf(e)==="trash").map(e=>e.id);
+  if(!ids.length){ toast("La corbeille est vide"); return; }
+  if(!confirm(`Vider la corbeille ?\n${ids.length} test${ids.length>1?'s seront supprimés':' sera supprimé'} définitivement, sur tous vos appareils.`)) return;
+  await purgeIds(ids);
+  toast(`Corbeille vidée (${ids.length} test${ids.length>1?'s':''})`);
 }
 
 /* ---- Sauvegarde / restauration de TOUS les tests (fichier .json) ---- */
@@ -715,6 +778,14 @@ async function restoreFrom(file){
     const i=idx.findIndex(x=>x.id===t.id);
     if(i>=0) idx[i]=e; else idx.push(e);
   }
+  // Une restauration explicite annule une éventuelle suppression antérieure
+  const tombs=await loadTombs();
+  let tombsChanged=false;
+  for(const t of valid){ if(tombs[t.id]!==undefined){ delete tombs[t.id]; tombsChanged=true; } }
+  if(tombsChanged) await saveTombs(tombs);
+  if(window.Cloud && Cloud.enabled && Cloud.user){
+    for(const t of valid){ Cloud.saveTest(t).catch(()=>{}); }
+  }
   idx.sort((a,b)=>b.updated-a.updated);
   await store.set(IDX_KEY, JSON.stringify(idx));
   const raw=await store.get(ITEM(idx[0].id));
@@ -731,30 +802,62 @@ async function cloudSync(silent){
   if(!(window.Cloud && Cloud.enabled && Cloud.user) || syncing) return;
   syncing=true;
   try{
-    const remote=await Cloud.fetchAll();            // tableau d'états distants
-    const remoteMap=new Map(remote.map(t=>[t.id,t]));
+    const records=await Cloud.fetchAll();           // [{id, deleted, updated, data}]
+    const remote=new Map(records.map(r=>[r.id,r]));
     let idx=await loadIndex();
-    const localMap=new Map();
-    for(const e of idx){ const raw=await store.get(ITEM(e.id)); if(raw){ try{ localMap.set(e.id,JSON.parse(raw)); }catch(_){} } }
-    const ids=new Set([...remoteMap.keys(), ...localMap.keys()]);
+    const local=new Map();
+    for(const e of idx){ const raw=await store.get(ITEM(e.id)); if(raw){ try{ local.set(e.id,JSON.parse(raw)); }catch(_){} } }
+    const tombs=await loadTombs();
+    const ids=new Set([...remote.keys(), ...local.keys(), ...Object.keys(tombs)]);
     let changed=false;
+
     for(const id of ids){
-      const r=remoteMap.get(id), l=localMap.get(id);
-      if(r && !l){ await store.set(ITEM(id),JSON.stringify(r)); changed=true; }         // nouveau depuis le cloud
-      else if(l && !r){ await Cloud.saveTest(l).catch(()=>{}); }                         // local seul → pousser
-      else if(r && l){
-        if((r.updated||0)>(l.updated||0)){ await store.set(ITEM(id),JSON.stringify(r)); changed=true; }
-        else if((l.updated||0)>(r.updated||0)){ await Cloud.saveTest(l).catch(()=>{}); }
+      const r=remote.get(id);
+      const l=local.get(id);
+      const rTime = r ? (r.updated||0) : -1;          // info distante (test ou suppression)
+      const lTime = l ? (l.updated||0) : -1;          // test présent localement
+      const tTime = tombs[id] || -1;                  // suppression enregistrée localement
+      const localTime = Math.max(lTime,tTime);
+      const localIsDelete = tTime > lTime;
+
+      if(rTime > localTime){
+        // Le cloud a l'information la plus récente
+        if(r.deleted){                                 // supprimé ailleurs → supprimer ici
+          if(l){ await store.del(ITEM(id)); changed=true; }
+          tombs[id]=rTime;
+        } else if(r.data){                             // créé/modifié ailleurs → récupérer
+          await store.set(ITEM(id),JSON.stringify(r.data));
+          delete tombs[id];
+          changed=true;
+        }
+      } else if(localTime > rTime){
+        // C'est l'appareil courant qui a l'information la plus récente
+        if(localIsDelete){                             // supprimé ici → propager la suppression
+          await Cloud.deleteTest(id,tTime).catch(()=>{});
+          if(l){ await store.del(ITEM(id)); changed=true; }
+        } else if(l){
+          await Cloud.saveTest(l).catch(()=>{});
+        }
       }
     }
+    await saveTombs(tombs);
+
     // Reconstruire l'index à partir du local fusionné
     const newIdx=[];
     for(const id of ids){ const raw=await store.get(ITEM(id)); if(!raw) continue; try{ newIdx.push(indexEntry(JSON.parse(raw))); }catch(_){} }
     newIdx.sort((a,b)=>b.updated-a.updated);
     await store.set(IDX_KEY,JSON.stringify(newIdx));
-    // Recharger l'état courant s'il a été mis à jour
+
+    // Rafraîchir le test affiché (mis à jour, ou supprimé depuis un autre appareil)
     const cur=await store.get(ITEM(state.id));
-    if(cur){ try{ const fresh=JSON.parse(cur); if((fresh.updated||0)!==(state.updated||0)){ state=fresh; render(); } }catch(_){} }
+    if(cur){
+      try{ const fresh=JSON.parse(cur); if((fresh.updated||0)!==(state.updated||0)){ state=fresh; render(); } }catch(_){}
+    } else if(newIdx.length){
+      const raw=await store.get(ITEM(newIdx[0].id));
+      if(raw){ try{ state=JSON.parse(raw); activeStep=0; render(); }catch(_){} }
+    } else {
+      state=blankState(); activeStep=0; render();
+    }
     renderDrafts(newIdx);
     if(!silent) toast(changed?"Synchronisé":"À jour");
   }catch(e){ if(!silent) toast("Synchronisation impossible — vérifiez la connexion"); }
