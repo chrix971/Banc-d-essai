@@ -592,8 +592,8 @@ function draftRow(e,group){
   } else {
     buttons = act("dup",e.id,"Dupliquer (nouveau modèle, même structure)",ICO.dup)
             + (group==="archived"
-                ? act("unarch",e.id,"Réactiver ce test",ICO.unarchive)
-                : act("arch",e.id,"Archiver (test terminé)",ICO.archive))
+                ? act("unarch",e.id,"Réactiver ce test",ICO.unarchive,"arch")
+                : act("arch",e.id,"Archiver (test terminé)",ICO.archive,"arch"))
             + act("trash",e.id,"Mettre à la corbeille",ICO.trash,"del");
   }
   return `<div class="draftrow">
@@ -640,7 +640,7 @@ function renderDrafts(idx){
     ? active.map(e=>draftRow(e,"active")).join("")
     : '<p class="empty" style="padding:2px 10px 6px">Aucun test en cours.</p>';
   if(archived.length){
-    html += `<button class="archtoggle" data-archtoggle>
+    html += `<button class="archtoggle arch" data-archtoggle>
         <svg class="chev${showArchive?' open':''}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg>
         Archives <span class="acount">${archived.length}</span>
       </button>`;
