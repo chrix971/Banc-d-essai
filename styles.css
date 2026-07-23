@@ -142,6 +142,11 @@
   .archtoggle .chev.open{transform:rotate(90deg)}
   .archtoggle .acount{margin-left:auto;font-family:'JetBrains Mono';background:var(--line);color:var(--ink-soft);
     padding:1px 7px;border-radius:20px;font-size:10.5px;letter-spacing:0}
+  .archtoggle.trash:hover{color:var(--amber)}
+  .archtoggle .emptybtn{margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.04em;
+    color:var(--amber);border:1px solid #F0D6BE;background:#FBF1E7;padding:2px 7px;border-radius:20px}
+  .archtoggle .emptybtn:hover{background:var(--amber);color:#fff;border-color:var(--amber)}
+  .archbadge.trash{color:var(--amber)}
   .archgroup{border-top:1px solid var(--line);margin-top:2px;padding-top:3px}
   .archgroup .draftitem .dt{color:var(--ink-soft);font-weight:500}
   .archbadge{margin-left:8px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
